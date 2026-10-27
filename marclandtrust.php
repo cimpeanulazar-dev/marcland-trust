@@ -18,9 +18,86 @@ class MarclandTrust extends Module
         $this->displayName = 'MARCLAND Trust Signals';
         $this->description = 'Configurable product trust information';
     }
+    /** Maximum enforced by the future validated configuration save, not by IDs. */
+    public const MAX_ZONES = 3;
+
     public function install(): bool
     {
-        return parent::install() && $this->registerHook('displayProductAdditionalInfo');
+        if (!parent::install()) {
+            return false;
+        }
+
+        try {
+            if (!$this->installSchema()
+                || !$this->registerHook('displayProductAdditionalInfo')) {
+                throw new RuntimeException('Schema creation or hook registration failed.');
+            }
+        } catch (Throwable $exception) {
+            $this->_errors[] = $this->l('Trust Signals installation failed. Any existing zone data has been preserved.');
+            // DDL implicitly commits: never drop tables as an installation rollback.
+            try {
+                if (!parent::uninstall()) {
+                    $this->_errors[] = $this->l('Module registration cleanup failed. Retry installation after checking module status.');
+                }
+            } catch (Throwable $cleanupException) {
+                $this->_errors[] = $this->l('Module registration cleanup failed. Check module status before retrying.');
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Additive and repeatable; never alters or replaces an existing table.
+     * Shared across all shops in this PrestaShop installation.
+     */
+    public function installSchema(): bool
+    {
+        $queries = [
+            'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'marclandtrust_zone` (
+                `id_zone` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `position` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+                `active` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+                `icon_type` VARCHAR(16) NOT NULL DEFAULT \'predefined\',
+                `icon_name` VARCHAR(128) DEFAULT NULL,
+                `custom_icon_path` VARCHAR(255) DEFAULT NULL,
+                `link_type` VARCHAR(16) NOT NULL DEFAULT \'none\',
+                `link_target` VARCHAR(2048) DEFAULT NULL,
+                PRIMARY KEY (`id_zone`),
+                KEY `active_position` (`active`, `position`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+            'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'marclandtrust_zone_lang` (
+                `id_zone` INT UNSIGNED NOT NULL,
+                `id_lang` INT UNSIGNED NOT NULL,
+                `text` TEXT NOT NULL,
+                PRIMARY KEY (`id_zone`, `id_lang`),
+                KEY `id_lang` (`id_lang`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+        ];
+
+        try {
+            foreach ($queries as $query) {
+                if (!Db::getInstance()->execute($query)) {
+                    $this->_errors[] = $this->l('Unable to create the Trust Signals database tables. Check database permissions and server logs, then retry.');
+
+                    return false;
+                }
+            }
+        } catch (Throwable $exception) {
+            $this->_errors[] = $this->l('Unable to create the Trust Signals database tables. Check database permissions and server logs, then retry.');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Unregister the module while deliberately retaining merchant data. */
+    public function uninstall(): bool
+    {
+        return parent::uninstall();
     }
 
 
