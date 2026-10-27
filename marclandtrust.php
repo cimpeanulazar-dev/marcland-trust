@@ -201,8 +201,7 @@ class MarclandTrust extends Module
     {
         $token = $_POST['trust_token'] ?? null;
         if (!$this->context->employee || !$this->context->employee->isLoggedBack()
-            || !$this->getPermission('configure') || !is_string($token)
-            || !hash_equals(Tools::getAdminTokenLite('AdminModules'), $token)) {
+            || !$this->getPermission('configure') || !$this->isConfigurationTokenValid($token)) {
             return $this->displayError($this->l('Invalid admin session or security token. Reload the page and try again.'));
         }
         try {
@@ -227,6 +226,28 @@ class MarclandTrust extends Module
             'configure' => $this->name, 'trust_saved' => '1',
         ]));
         return '';
+    }
+
+    /** Symfony CSRF token values are randomized: validate them rather than comparing encodings. */
+    private function isConfigurationTokenValid($token): bool
+    {
+        if (!is_string($token) || $token === '') {
+            return false;
+        }
+        try {
+            $container = class_exists(\PrestaShop\PrestaShop\Adapter\SymfonyContainer::class)
+                ? \PrestaShop\PrestaShop\Adapter\SymfonyContainer::getInstance() : null;
+            if ($container !== null) {
+                // The form action and hidden value are generated from the same per-request token.
+                // Bind them, then let PrestaShop validate the randomized token against the session.
+                $urlToken = $_GET['_token'] ?? $_GET['token'] ?? null;
+                return is_string($urlToken) && hash_equals($urlToken, $token)
+                    && $container->get(\PrestaShopBundle\Security\Admin\UserTokenManager::class)->isTokenValid();
+            }
+            return hash_equals(Tools::getAdminTokenLite('AdminModules'), $token);
+        } catch (Throwable $exception) {
+            return false;
+        }
     }
 
     /** Bound and normalize only for safe redisplay; never use this data for database writes. */

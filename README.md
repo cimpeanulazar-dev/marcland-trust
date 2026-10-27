@@ -215,3 +215,11 @@ Additional disposable MariaDB checks are `tests/lifecycle.php` (its own random
 Both use MARCLAND_TEST_DSN with the same disposable trust_test database policy as
 `tests/persistence.php`; run persistence before concurrency, which intentionally
 leaves its three synthetic race-winner zones for inspection.
+
+
+Real PrestaShop 9 integration was subsequently completed; see the
+[resumed integration report](docs/real-prestashop-integration.md) for actual store
+coverage, the confirmed PS9 CSRF fix and publication limits. `php tests/csrf.php`
+exercises the public token-manager delegation and fail-closed behavior. In multistore,
+shared trust data does not force module activation: enable the module in each intended
+shop, including after a reinstall performed in a single-shop context.

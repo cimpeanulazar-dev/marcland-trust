@@ -3,6 +3,11 @@
 Date: 27 October 2026. Repository: `cimpeanulazar-dev/marcland-trust`, branch `develop`.
 Starting commit: `9446e993502caafeecbadeac832c4a8c3e72054d`.
 
+> **Resumed integration update:** The network block was subsequently resolved and
+> real PS9 integration was executed. See [the new evidence and scoped decision](real-prestashop-integration.md).
+> The NO-GO statement and missing-real-store coverage below describe the original
+> audit run, not the resumed run. Marketplace publication remains separately gated.
+
 **Recommendation: NO-GO for release/promotion and Marketplace submission.**
 The isolated checks below pass after targeted fixes, but a complete PrestaShop 9
 store could not be installed. Actual module lifecycle, admin Save/redirect/session
