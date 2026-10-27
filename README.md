@@ -29,7 +29,7 @@ uses CREATE TABLE IF NOT EXISTS, reports errors and attempts module-registration
 cleanup on failure. DDL implicitly commits, so partial tables and existing data
 are retained on failure. Existing table definitions are not repaired automatically.
 The existing product hook is registered on successful installation. Already-installed
-copies without these tables still require additive schema setup; no destructive
+copies without these tables receive additive schema setup through the 0.2.0 upgrade; no destructive
 upgrade path is introduced.
 
 Uninstall unregisters the module but retains tables, merchant data **and uploaded
@@ -194,7 +194,7 @@ A missing schema or database error returns no component rather than breaking the
 `views/css/front.css` is registered on product controllers through
 `actionFrontControllerSetMedia`. Flex wrapping adapts to narrow containers; all selectors
 are scoped and typography/colors inherit the theme. Version 0.2.0 adds a non-destructive
-upgrade script to register this hook for already-installed copies. Run the normal
+upgrade script to ensure additive schema setup and both hooks for already-installed copies. Run the normal
 PrestaShop module upgrade after deploying these files; copying files alone does not
 register a new hook. Fresh installs register both hooks. Schema and data-retention
 policy are unchanged. Themes control whether/where `displayProductAdditionalInfo`
@@ -204,3 +204,14 @@ Run `php tests/front.php` for focused presentation-data checks. Smarty 4 compila
 and escaped output are checked separately with representative presentation data.
 These checks do not establish real PrestaShop storefront validation. Full integration
 and end-to-end testing remain deferred; Task 04 does not start that final phase.
+
+
+## Final validation (Task 05)
+
+See [the release-readiness report](docs/release-readiness.md) for executed tests,
+confirmed fixes, performance measurements and unresolved release blockers.
+Additional disposable MariaDB checks are `tests/lifecycle.php` (its own random
+`audit_lifecycle_` prefix) and `tests/concurrency.php` (empty `test_shop_` tables).
+Both use MARCLAND_TEST_DSN with the same disposable trust_test database policy as
+`tests/persistence.php`; run persistence before concurrency, which intentionally
+leaves its three synthetic race-winner zones for inspection.

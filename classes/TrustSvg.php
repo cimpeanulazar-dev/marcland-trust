@@ -34,7 +34,7 @@ final class MarclandTrustSvg
             }
             $output = new DOMDocument('1.0', 'UTF-8');
             $count = 0;
-            $output->appendChild(self::copyElement($root, $output, 0, $count));
+            $output->appendChild(self::copyElement($root, $output, new DOMXPath($source), 0, $count));
             $result = $output->saveXML($output->documentElement);
             if ($result === false || strlen($result) > self::MAX_BYTES) {
                 throw new InvalidArgumentException('Sanitized SVG is too large.');
@@ -46,7 +46,7 @@ final class MarclandTrustSvg
         }
     }
 
-    private static function copyElement(DOMElement $element, DOMDocument $output, int $depth, int &$count): DOMElement
+    private static function copyElement(DOMElement $element, DOMDocument $output, DOMXPath $xpath, int $depth, int &$count): DOMElement
     {
         $attributes = [
             'svg' => ['viewBox', 'width', 'height'],
@@ -78,7 +78,6 @@ final class MarclandTrustSvg
             $target->setAttribute($key, $attribute->value);
         }
         // DOM does not expose namespace declarations as ordinary attributes.
-        $xpath = new DOMXPath($element->ownerDocument);
         foreach ($xpath->query('namespace::*', $element) as $namespace) {
             if (!in_array($namespace->nodeValue, ['http://www.w3.org/XML/1998/namespace', 'http://www.w3.org/2000/svg'], true)) {
                 throw new InvalidArgumentException('Unsupported SVG namespace.');
@@ -89,7 +88,7 @@ final class MarclandTrustSvg
                 if (in_array($name, ['title', 'desc'], true)) {
                     throw new InvalidArgumentException('SVG descriptions must contain text only.');
                 }
-                $target->appendChild(self::copyElement($child, $output, $depth + 1, $count));
+                $target->appendChild(self::copyElement($child, $output, $xpath, $depth + 1, $count));
             } elseif ($child->nodeType === XML_TEXT_NODE || $child->nodeType === XML_CDATA_SECTION_NODE) {
                 if (in_array($name, ['title', 'desc'], true)) {
                     $target->appendChild($output->createTextNode($child->nodeValue));

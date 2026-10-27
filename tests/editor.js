@@ -25,7 +25,9 @@ const fileInput = added.querySelector('[data-field="file"]');
 // Simulate selection metadata; actual PHP multipart upload is checked separately over HTTP.
 Object.defineProperty(fileInput, 'files', {value:[new window.File(['<svg/>'], 'selected.svg', {type:'image/svg+xml'})]});
 change(fileInput);
+added.querySelector('[data-action="up"]').focus();
 added.querySelector('[data-action="up"]').click();
+assert.equal(document.activeElement.closest('[data-client-key]'), cards()[0], 'keyboard focus lost after reorder');
 assert.equal(cards()[0].querySelector('[data-field="file"]'), fileInput, 'reorder recreated file input');
 assert.match(cards()[0].querySelector('[data-role="file-status"]').textContent, /selected.svg/);
 language.value = '29'; change(language);

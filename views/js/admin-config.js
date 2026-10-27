@@ -143,7 +143,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     captureTexts();
                     [zones[index], zones[destination]] = [zones[destination], zones[index]];
                     render();
-                    list.children[destination].querySelector(`[data-action="${action}"]`).focus();
+                    const moved = list.children[destination];
+                    const preferred = moved.querySelector(`[data-action="${action}"]`);
+                    // At an edge the move button becomes disabled; keep focus in the moved zone.
+                    (preferred.disabled ? moved.querySelector('[data-action="remove"]') : preferred).focus();
                 });
             });
             list.appendChild(card);

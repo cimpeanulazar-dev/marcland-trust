@@ -4,8 +4,10 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-/** Add frontend media registration without touching schema, configuration or uploaded data. */
+/** Ensure additive schema setup and both hooks; never replace existing merchant data. */
 function upgrade_module_0_2_0($module)
 {
-    return $module->registerHook('actionFrontControllerSetMedia');
+    return $module->installSchema()
+        && $module->registerHook('displayProductAdditionalInfo')
+        && $module->registerHook('actionFrontControllerSetMedia');
 }

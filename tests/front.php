@@ -16,9 +16,15 @@ define('_PS_VERSION_', '9.0.0');
 require dirname(__DIR__) . '/upgrade/upgrade-0.2.0.php';
 $upgradeModule = new class {
     public $hooks = [];
+    public $schemaCalls = 0;
+    public $schemaResult = true;
+    public function installSchema() { ++$this->schemaCalls; return $this->schemaResult; }
     public function registerHook($name) { $this->hooks[] = $name; return true; }
 };
-ensure(upgrade_module_0_2_0($upgradeModule) === true && $upgradeModule->hooks === ['actionFrontControllerSetMedia'], 'upgrade registration');
+ensure(upgrade_module_0_2_0($upgradeModule) === true && $upgradeModule->schemaCalls === 1 && $upgradeModule->hooks === ['displayProductAdditionalInfo', 'actionFrontControllerSetMedia'], 'upgrade registration');
+$upgradeModule->schemaResult = false;
+$upgradeModule->hooks = [];
+ensure(upgrade_module_0_2_0($upgradeModule) === false && $upgradeModule->hooks === [], 'upgrade schema failure must stop hook registration');
 $db = new FrontDb();
 $link = new class {
     public $calls = [];
