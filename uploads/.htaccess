@@ -1,0 +1,11 @@
+Options -Indexes
+<FilesMatch "^(?![a-f0-9]{32}\.svg$)">
+    Require all denied
+</FilesMatch>
+<FilesMatch "^[a-f0-9]{32}\.svg$">
+    ForceType image/svg+xml
+    <IfModule mod_headers.c>
+        Header set X-Content-Type-Options "nosniff"
+        Header set Content-Security-Policy "default-src 'none'; style-src 'none'; sandbox"
+    </IfModule>
+</FilesMatch>

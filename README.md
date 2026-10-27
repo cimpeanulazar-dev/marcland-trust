@@ -1,112 +1,171 @@
 # MARCLAND Trust Signals
 
 PrestaShop 9 module. Install the checkout as `modules/marclandtrust` in an existing
-PrestaShop application. No Composer or JavaScript build dependencies are required.
+PrestaShop application. No Composer dependencies, build system or external services
+are required. PHP DOM/libxml and mbstring are required (standard PrestaShop requirements).
 
-## Database foundation (Task 01)
+## Schema and ownership
 
-`installSchema()` creates two prefix-aware InnoDB tables with utf8mb4 and
+`installSchema()` creates two prefix-aware InnoDB tables using utf8mb4 and
 utf8mb4_unicode_ci. The zone table has an unsigned AUTO_INCREMENT `id_zone`,
-ordering, visibility, nonlocalized icon references and link configuration.
+position, visibility, nonlocalized icon references and link configuration.
 The `(active, position)` index supports ordered visible-zone reads. The language
 table has a composite `(id_zone, id_lang)` primary key and an `id_lang` index.
-Text exists only in the language table; no language IDs or default content are seeded.
+No language IDs or default trust claims are seeded.
 
-Ownership is installation-wide: **all shops share the same zones and translations**.
-There is no implicit current-shop filter. Independent shop configuration would require
-an explicit future schema migration and ownership design.
+**All shops in this PrestaShop installation share zones and translations.**
+There is no implicit current-shop filter or per-shop ownership. The editor lists
+CMS titles for its current shop; the save handler validates that the CMS record
+exists globally, consistent with shared configuration. Merchants must select CMS
+pages available in the shops where the link will be used.
 
-Foreign keys are deliberately application-managed, matching PrestaShop module
-lifecycle conventions and avoiding constraints on core language tables. Future saves
-must validate installed language IDs and zone ownership, and delete child translations
-with their zone inside the same transaction. Future language deletion handling must
-remove stale translations. The schema alone does not prevent orphan rows.
+Foreign keys are application-managed. Saves validate installed language IDs and
+zone ownership, and delete translations before deleting zones in the same transaction.
+A successful full save replaces each retained zone's translations, removing stale
+language rows. There is no independent core-language-deletion hook yet.
 
-Both tables support future atomic DML transactions on the same master connection.
-MySQL/MariaDB DDL implicitly commits: schema installation itself is not transactional.
-On failure, module registration cleanup is attempted and errors are reported; any
-partially created tables and all pre-existing data are retained. Retrying uses
-CREATE TABLE IF NOT EXISTS. Existing table definitions are not migrated or repaired
-by this method. The existing product hook is still registered on successful install.
+The Task 01 schema and install/uninstall behavior remain unchanged. Installation
+uses CREATE TABLE IF NOT EXISTS, reports errors and attempts module-registration
+cleanup on failure. DDL implicitly commits, so partial tables and existing data
+are retained on failure. Existing table definitions are not repaired automatically.
+The existing product hook is registered on successful installation. Already-installed
+copies without these tables still require additive schema setup; no destructive
+upgrade path is introduced.
 
-Uninstall unregisters the module through PrestaShop but **retains both tables and
-merchant data**, including after reinstall. There is no automatic destructive cleanup
-or destructive upgrade path. Permanent removal requires a separate explicit,
-backed-up administrator operation, deleting the prefixed language table before the
-zone table. No upgrade runner is added in Task 01; already-installed copies need a
-future additive upgrade task to invoke schema setup.
+Uninstall unregisters the module but retains tables, merchant data **and uploaded
+icons**. Permanent removal requires an explicit backed-up administrator operation,
+deleting translations before zones and removing their generated icons.
 
-## Future persistence contract (not implemented)
+## Configuration editor and persistence
 
-The application must validate a maximum of `MarclandTrust::MAX_ZONES` (three),
-including inactive zones. AUTO_INCREMENT values are identities, not a count or slot.
-Concurrent saves must serialize the count check and writes in a transaction using a
-shared lock strategy; simply counting before an INSERT is insufficient.
+Languages come from PrestaShop, including installed inactive languages. Each zone has
+one visible message input; switching languages preserves all translations and zone
+identity. Add creates a null database ID and a separate temporary client key. Removing
+an unsaved zone makes no backend request. Move up/down determines positions 1–3.
+Inactive zones count toward the three-zone limit.
 
-Add (+) creates only an unsaved UI element, with `id_zone: null` or no persistent ID.
-A temporary client key must remain separate. Only Save triggers PHP validation and
-INSERT, omitting `id_zone`; PHP retrieves `Db::getInstance()->Insert_ID()` on that
-same connection and uses it for localized rows. Existing zones retain database IDs;
-language switching never changes identity or creates a zone. Task 02 implements the unsaved editor; database saving remains deferred.
+Six original icons are bundled under `views/img/icons`. Custom selection retains the
+**original file input element**, including through reordering/language changes. Only
+saved sanitized icons are displayed through image references; local uploads are never
+injected inline or previewed with object URLs. Selecting a predefined icon removes the
+custom reference on successful save. Selecting another SVG replaces the existing one
+only after the whole configuration succeeds.
 
-Future validation must allowlist icon/link types, check predefined names, restrict
-custom paths to controlled sanitized uploads, and validate link destinations.
-The database stores references, never raw SVG/XML. Translation saves must account
-for all installed languages without hardcoded IDs. Bundled icons, uploads, zone
-persistence and frontend changes are outside Task 01.
+Save performs a traditional multipart POST. Hidden fields are rebuilt under
+`trust_signals[index]`: persistent ID (empty for new zones), ordering, active flag,
+icon/link settings and `text[id_lang]` for every installed language. Native file inputs
+are named `trust_icons[index]` using the same current index. Client keys are never
+submitted. `trust_deleted[]` explicitly lists removed existing zones. An empty editor
+has `trust_signals_present=1`; an `upload_selected` flag detects missing/truncated selected files; the final
+`trust_payload_complete=1` sentinel detects
+truncation from PHP input limits. No AJAX/fetch is used.
 
-## Development checks
+The handler requires an authenticated employee, module configure permission and a
+constant-time check of the PrestaShop AdminModules token. Server validation rejects
+unexpected fields, invalid/duplicate IDs, unknown languages, incorrect ordering or
+visibility, unsupported icons, manipulated file references, nonexistent CMS IDs and
+invalid anchors. Anchors are identifiers without `#`, matching an ASCII letter followed
+by up to 127 letters, digits, underscores or hyphens; arbitrary URLs are unsupported.
 
-With PHP 8.4 (within PrestaShop 9's supported range):
+Messages are UTF-8 **plain text, at most 500 Unicode code points per language**.
+HTML and control characters are rejected; quotes, ampersands and emoji are preserved.
+Every installed language must appear in the request. An empty string intentionally
+removes that translation; missing languages fail validation. No translation is copied
+from another language, and there is no implicit fallback or generated claim.
+
+## Transactions and failure handling
+
+One master connection acquires a database/prefix-specific GET_LOCK before starting a
+transaction. This serializes module saves even when both tables are empty. A SHA-256
+revision of the loaded rows is checked inside that lock; stale tabs fail rather than
+silently overwrite another save. All existing IDs must be accounted for exactly once
+as retained or explicitly deleted. The complete final set must contain at most three
+zones. Writers outside this module must honor the same locking protocol.
+
+New rows omit `id_zone`; the same connection's Insert_ID supplies translation IDs.
+Updates retain real IDs. All zone/translation INSERT/UPDATE/DELETE operations must
+succeed before COMMIT; failures attempt ROLLBACK. No SQL/server error text is exposed.
+Successful saves redirect back to the tokenized configuration URL (Post/Redirect/Get).
+
+Validation errors redisplay bounded submitted values and translations. Stale edits
+remain visible for copying but require a reload to get the latest revision. **File
+selections must be repeated after a failed POST**; browsers cannot restore uploaded
+FileLists from PHP. Requests discarded by PHP's total upload limit cannot be recovered.
+
+Sanitized files are written under exclusive generated filenames before committing
+references. On confirmed rollback newly created files are removed. Old files are
+retired only after commit and only if no zone still references them, while the writer
+lock is held. Failed cleanup may leave harmless sanitized orphans. Ambiguous COMMIT or
+ROLLBACK outcomes retain new files to avoid deleting potentially committed references;
+reload to check the actual saved state before retrying. Database/filesystem operations
+are not a distributed transaction, so a process crash can also leave sanitized orphans.
+
+## SVG policy and deployment
+
+Uploads are limited to 102400 bytes and a `.svg` filename. PHP verifies that the source
+is an actual HTTP-uploaded file. Client MIME and filename are not trusted as content
+validation. XML is parsed with DOM/libxml, external resolution/substitution disabled,
+and LIBXML_NONET. DTDs and entity declarations are rejected. A **fresh DOM** is built
+from explicit allowlists, never from copied untrusted nodes or regex filtering alone.
+
+The supported subset is svg/g, paths, rectangles, circles, ellipses, lines,
+polylines/polygons and text-only title/desc, with limited numeric geometry and basic
+fill/stroke attributes. Colors accept common basic names, hex, none and currentColor.
+Scripts, event attributes, styles, transforms, animation, images, use/href, URLs,
+foreignObject, nested SVG, processing instructions, unsupported namespaces and other
+features are rejected. Limits of 32 nested levels and 2000 elements also apply.
+This intentionally narrow policy requires some design-tool exports to be simplified;
+it is not a general-purpose SVG compatibility sanitizer. It adds no vendored dependency
+or Marketplace packaging step. The policy and tests should receive security review
+before broadening the supported SVG feature set.
+
+Generated assets use `uploads/<32-random-hex>.svg`; raw SVG/XML never enters the database.
+The browser cannot assign a new path or reuse another zone's path. `uploads/` is shipped
+with directory-listing/execution restrictions and a deny index. Give **only this
+directory** write access for the PHP/web-server user; avoid world-writable permissions.
+Apache 2.4 must allow the shipped `.htaccess`. With Nginx or other servers, configure
+this directory for static SVG serving, no directory listing or script execution, an
+`image/svg+xml` content type, `X-Content-Type-Options: nosniff`, and a restrictive CSP
+(`default-src 'none'; style-src 'none'; sandbox`). Back up assets alongside database rows.
+
+## Focused development checks
+
+With PHP 8.4:
 
 ```sh
-php -l marclandtrust.php
-php -l tests/schema.php
+find . -name '*.php' -not -path './vendor/*' -exec php -l {} \;
+node --check views/js/admin-config.js
 php tests/schema.php
+php tests/security.php
+php tests/admin.php
 ```
 
-`tests/schema.php` uses standalone PrestaShop doubles to exercise generated SQL,
-installation success, repeatability, boolean and exception failures, registration
-cleanup, hook failure and data-preserving uninstall. It does not constitute a real
-PrestaShop installation test. `--sql` emits the tested schema for database validation
-with the deliberately nondefault `test_shop_` prefix.
+Schema tests use PrestaShop doubles. Security tests cover request validation and SVG
+allowlist rejection; admin doubles check CSRF, configure permission and redisplay.
+They are not a real PrestaShop installation test.
 
+For `tests/persistence.php`, use an **empty disposable MariaDB database named
+trust_test**, root with an empty password, and PHP pdo_mysql. Apply the schema emitted
+by `php tests/schema.php --sql`, then run:
 
-## Configuration editor (Task 02)
+```sh
+MARCLAND_TEST_DSN='mysql:host=YOUR_DISPOSABLE_DB;dbname=trust_test;charset=utf8mb4' php tests/persistence.php
+```
 
-The administration page loads all installed languages, existing shared zones and
-translations, and CMS identifiers/titles for the current shop through read-only
-PrestaShop APIs. Both configuration assets use the existing admin controller.
-The language selector changes the value of the same visible input per zone without
-changing zone identity. Add creates a local key and a null persistent ID. Inactive
-zones count toward the three-zone limit; Move up/down updates display positions.
-Pre-existing excess rows are preserved for review/removal, with submission disabled
-until no more than three remain.
+That test writes actual rows and checks create/update/delete, Unicode, second-connection
+lock contention, stale/unknown IDs, rollback and icon lifecycle. Never point it at a
+store database. The SQL adapter emulates the relevant PrestaShop Db method signatures;
+it is not a complete PrestaShop runtime.
 
-Six original SVG icons are bundled under `views/img/icons`. The editor stores their
-identifiers. Custom selections retain a local File object and show the filename as
-text; they never render SVG, create a preview URL, upload, or submit the file.
-The browser file input may reset when cards are reordered, but the selected File
-remains in editor memory and its filename remains visible. Language changes retain
-the existing file input too.
+`tests/editor.js` optionally uses jsdom installed outside the repository via NODE_PATH
+and a rendered Smarty fixture filename as its argument. It checks same-input language
+switching, retained file controls through reordering, null new IDs, explicit deletions,
+matching multipart indices, the three-zone limit and repeatable hidden serialization.
+The fixture must contain languages 17/29 and one existing custom zone ID 8; these IDs
+are test fixtures only. No npm dependency is needed to run the module.
 
-Save submits a normal POST. Hidden fields are rebuilt once per submission under
-`trust_signals[index]`, including an empty `id_zone` for new zones, numeric position,
-active flag, icon/link configuration and `text[id_lang]` for every installed
-language. `trust_signals_present=1` also represents an intentionally empty editor.
-Client keys and file objects are never serialized. Anchor inputs accept only an
-ASCII letter followed by letters, numbers, underscores or hyphens; CMS links use
-page IDs, not URLs. All client fields are untrusted and need server validation in
-Task 03, including existing IDs and custom paths.
-
-**Nothing is saved yet.** The placeholder POST handler displays a warning instead
-of success and reloads persisted data; unsaved edits and file selections are lost
-on submit/reload/navigation. Upload processing, authoritative validation, CSRF
-handling for writes, and transactional persistence remain Task 03 work. No frontend
-hook/template or database schema changes were made in Task 02. Language switches,
-adding, removing, and reordering make no backend calls.
-
-Task 02 checks: PHP 8.4 lint, standalone schema/lifecycle tests, JavaScript syntax,
-Smarty 4.5.6 compilation/rendering with a translation stub, matching JS/template
-selectors, and bundled SVG XML validation. Real PrestaShop administration behavior
-and complete integration/functional testing remain deferred as requested.
+Task 03 was checked using PHP 8.4/MariaDB 11.4, Smarty 4.5.6 compilation, the focused DOM
+test, and actual PHP multipart requests (valid SVG accepted; disguised PHP rejected).
+Full PrestaShop installation, admin routing/token lifecycle, browser integration and
+end-to-end testing remain deferred. Product-page rendering improvements are Task 04
+and are not implemented here.

@@ -1,15 +1,17 @@
 <div class="panel" id="marclandtrust-editor" data-config="{$trust_editor_data|escape:'html':'UTF-8'}">
     <h3>{l s='MARCLAND Trust Signals' mod='marclandtrust'}</h3>
-    <p class="alert alert-warning">{l s='Preview editor: Save submits the form but does not persist changes yet. Custom SVG files are not uploaded. All shops share these zones.' mod='marclandtrust'}</p>
+    <p class="alert alert-warning">{l s='All shops share these zones. Messages are plain text, up to 500 characters per language. Empty translations are removed without a language fallback.' mod='marclandtrust'}</p>
     <noscript>{l s='JavaScript is required to edit trust signal zones.' mod='marclandtrust'}</noscript>
-    <form method="post" id="marclandtrust-form">
+    <form method="post" enctype="multipart/form-data" action="{$trust_form_action|escape:'html':'UTF-8'}" id="marclandtrust-form">
+        <input type="hidden" name="trust_token" value="{$trust_token|escape:'html':'UTF-8'}">
+        <input type="hidden" name="trust_revision" value="{$trust_revision|escape:'html':'UTF-8'}">
         <label for="marclandtrust-language">{l s='Editing language' mod='marclandtrust'}</label>
         <select id="marclandtrust-language" class="form-control"></select>
         <p id="marclandtrust-status" aria-label="{l s='Zone count' mod='marclandtrust'}" role="status" aria-live="polite"></p>
         <div id="marclandtrust-items"></div>
         <div id="marclandtrust-serialized"></div>
         <button type="button" id="marclandtrust-add-item" class="btn btn-default">+ {l s='Add zone' mod='marclandtrust'}</button>
-        <button type="submit" name="submitMarclandTrust" value="1" class="btn btn-primary">{l s='Save (persistence pending)' mod='marclandtrust'}</button>
+        <button type="submit" name="submitMarclandTrust" value="1" class="btn btn-primary">{l s='Save' mod='marclandtrust'}</button>
     </form>
     <template id="marclandtrust-zone-template">
         <fieldset class="marclandtrust-item">
@@ -42,8 +44,9 @@
             </div>
             <div data-role="custom" hidden>
                 <label>{l s='Select SVG file' mod='marclandtrust'} <input type="file" accept=".svg,image/svg+xml" data-field="file"></label>
-                <p>{l s='Local selection only. Secure upload and validation will be implemented later.' mod='marclandtrust'}</p>
+                <p>{l s='SVG only, maximum 100 KB. Basic shapes and paths are supported. Scripts, styles, external references and other unsupported features are rejected. Select files again after a failed submission.' mod='marclandtrust'}</p>
                 <p data-role="file-status" role="status"></p>
+                <img data-role="custom-preview" width="48" height="48" alt="{l s='Saved custom icon' mod='marclandtrust'}" hidden>
             </div>
             <label>{l s='Link destination' mod='marclandtrust'}
                 <select data-field="link_type" class="form-control">

@@ -1,4 +1,4 @@
-/* Unsaved editor state only. Persistent IDs originate exclusively in PHP/database data. */
+/* Classic multipart editor. Persistent IDs originate exclusively in PHP/database data. */
 document.addEventListener('DOMContentLoaded', () => {
     const root = document.getElementById('marclandtrust-editor');
     if (!root) return;
@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const serialized = root.querySelector('#marclandtrust-serialized');
     const status = root.querySelector('#marclandtrust-status');
     const icons = ['truck', 'returns', 'shield', 'lock', 'support', 'verified'];
+    const deleted = new Set((config.deletedIds || []).map(String));
     let nextKey = 0;
     let language = String(config.language);
     const zones = config.zones.map(zone => ({
@@ -18,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Separate namespace: never serialize this temporary UI key.
         client_key: `zone-${++nextKey}`,
         texts: {...zone.texts},
+        icon_name: zone.icon_name || 'truck',
         file: null,
     }));
     config.languages.forEach(lang => {
@@ -86,12 +88,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (icons.includes(name)) button.querySelector('img').src = `${config.iconBase}${name}.svg`;
                 button.addEventListener('click', () => { zone.icon_name = name; updateIcons(); });
             });
-            // The File object is kept locally across language switches/reordering. Never preview SVG.
+            // Move the original file input rather than recreating it: native multipart retains its FileList.
+            if (zone.fileInput) {
+                field('file').replaceWith(zone.fileInput);
+            } else {
+                zone.fileInput = field('file');
+                field('file').addEventListener('change', event => {
+                    zone.file = event.target.files[0] || null;
+                    event.target.closest('[data-client-key]').querySelector('[data-role="file-status"]').textContent
+                        = zone.file ? zone.file.name : (zone.custom_icon_path || '');
+                });
+            }
+            const preview = role('custom-preview');
+            if (/^uploads\/[a-f0-9]{32}\.svg$/.test(zone.custom_icon_path || '')) {
+                preview.src = config.customBase + zone.custom_icon_path;
+                preview.hidden = false;
+            }
+            // Only previously saved sanitized files get an image reference. No local SVG previews.
             role('file-status').textContent = zone.file ? zone.file.name : (zone.custom_icon_path || '');
-            field('file').addEventListener('change', event => {
-                zone.file = event.target.files[0] || null;
-                role('file-status').textContent = zone.file ? zone.file.name : (zone.custom_icon_path || '');
-            });
             updateIcons();
             field('link_type').value = zone.link_type;
             localizeCard(card, zone);
@@ -117,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateLink();
             card.querySelector('[data-action="remove"]').addEventListener('click', () => {
                 captureTexts();
+                if (zone.id_zone !== null) deleted.add(String(zone.id_zone));
                 zones.splice(index, 1);
                 render();
             });
@@ -173,17 +188,22 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         // Explicit marker distinguishes intentional removal of all zones from an absent payload.
         hidden('trust_signals_present', '1');
+        deleted.forEach(id => hidden('trust_deleted[]', id));
         zones.forEach((zone, index) => {
+            // File field indices match serialized zone indices after all edits/reordering.
+            zone.fileInput.name = `trust_icons[${index}]`;
             const prefix = `trust_signals[${index}]`;
             ['id_zone', 'position', 'icon_type', 'icon_name', 'custom_icon_path', 'link_type', 'link_target'].forEach(key => {
                 hidden(`${prefix}[${key}]`, zone[key]);
             });
             hidden(`${prefix}[active]`, zone.active ? '1' : '0');
+            hidden(`${prefix}[upload_selected]`, zone.icon_type === 'custom' && zone.file ? '1' : '0');
             config.languages.forEach(lang => {
                 hidden(`${prefix}[text][${lang.id_lang}]`, zone.texts[String(lang.id_lang)] || '');
             });
         });
-        // No file inputs have names: selected SVG files are never sent in Task 02.
+        hidden('trust_payload_complete', '1');
+        // Browser performs a normal multipart POST with the original file controls.
     });
     render();
 });
