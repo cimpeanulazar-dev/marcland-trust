@@ -10,7 +10,7 @@ class MarclandTrust extends Module
     {
         $this->name = 'marclandtrust';
         $this->tab = 'front_office_features';
-        $this->version = '0.1.0';
+        $this->version = '0.2.0';
         $this->author = 'MARCLAND';
 
         parent::__construct();
@@ -33,7 +33,8 @@ class MarclandTrust extends Module
 
         try {
             if (!$this->installSchema()
-                || !$this->registerHook('displayProductAdditionalInfo')) {
+                || !$this->registerHook('displayProductAdditionalInfo')
+                || !$this->registerHook('actionFrontControllerSetMedia')) {
                 throw new RuntimeException('Schema creation or hook registration failed.');
             }
         } catch (Throwable $exception) {
@@ -265,13 +266,30 @@ class MarclandTrust extends Module
         }
     }
 
+    public function hookActionFrontControllerSetMedia($params): void
+    {
+        if (($this->context->controller->php_self ?? '') === 'product') {
+            $this->context->controller->registerStylesheet(
+                'module-marclandtrust-front',
+                'modules/' . $this->name . '/views/css/front.css',
+                ['media' => 'all', 'priority' => 150]
+            );
+        }
+    }
+
     public function hookDisplayProductAdditionalInfo($params)
     {
-        $message = Configuration::get('MARCLAND_TRUST_MESSAGE');
-        $this->context->smarty->assign(array(
-            // Mai jos nu am stiut daca e bine null sau empty sau isset... m-am gandit ca set este pentru ca o declar mai sus so.... ramane intre null si empty
-            'trust_message' => is_string($message) && trim($message) !== ''?$message:'Livrare rapida si sigura',
-        ));
-        return $this->fetch('module:marclandtrust/views/templates/hook/trust-signals.tpl');
+        try {
+            require_once __DIR__ . '/classes/TrustFront.php';
+            $zones = MarclandTrustFront::zones(Db::getInstance(true), $this->context, __DIR__, $this->_path);
+            if (!$zones) {
+                return '';
+            }
+            $this->context->smarty->assign('marcland_trust_zones', $zones);
+            return $this->fetch('module:marclandtrust/views/templates/hook/trust-signals.tpl');
+        } catch (Throwable $ignored) {
+            // Missing schema or unavailable configuration must not break the product page.
+            return '';
+        }
     }
 }

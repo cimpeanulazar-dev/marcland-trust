@@ -167,5 +167,40 @@ are test fixtures only. No npm dependency is needed to run the module.
 Task 03 was checked using PHP 8.4/MariaDB 11.4, Smarty 4.5.6 compilation, the focused DOM
 test, and actual PHP multipart requests (valid SVG accepted; disguised PHP rejected).
 Full PrestaShop installation, admin routing/token lifecycle, browser integration and
-end-to-end testing remain deferred. Product-page rendering improvements are Task 04
-and are not implemented here.
+end-to-end testing remain deferred. Product-page rendering is documented under Task 04 below.
+
+## Product-page rendering (Task 04)
+
+`displayProductAdditionalInfo` now reads persisted, enabled zones with a focused
+zone/translation join using the actual storefront language ID. Empty or missing
+translations are omitted without a fallback. Stored position and ID determine order;
+at most three nonempty zones render. Configuration remains shared across shops.
+There is no old configuration placeholder or fabricated advertising claim.
+
+The same query checks active CMS destinations against the current shop and language.
+Valid CMS IDs are passed to PrestaShop `getCMSLink` with both context IDs (the API may
+perform its own CMS lookup). Invalid, inactive, deleted or unavailable destinations
+leave plain text; anchors use the existing strict identifier policy. All text and
+attribute values are escaped in Smarty. Icons are decorative images with empty alt
+text; links have visible keyboard focus and underlines. Missing/invalid icons leave
+the message visible without a broken image element.
+
+Bundled icon names are allowlisted. Custom references must match generated paths,
+exist without symlink indirection, and match the sanitizer's canonical safe output.
+At most three bounded 100 KB reads/revalidations occur per hook invocation; no new
+cache layer is introduced. This trades small local reads for rejecting tampered assets.
+A missing schema or database error returns no component rather than breaking the page.
+
+`views/css/front.css` is registered on product controllers through
+`actionFrontControllerSetMedia`. Flex wrapping adapts to narrow containers; all selectors
+are scoped and typography/colors inherit the theme. Version 0.2.0 adds a non-destructive
+upgrade script to register this hook for already-installed copies. Run the normal
+PrestaShop module upgrade after deploying these files; copying files alone does not
+register a new hook. Fresh installs register both hooks. Schema and data-retention
+policy are unchanged. Themes control whether/where `displayProductAdditionalInfo`
+renders, so positioning and spacing still need verification in the target theme.
+
+Run `php tests/front.php` for focused presentation-data checks. Smarty 4 compilation
+and escaped output are checked separately with representative presentation data.
+These checks do not establish real PrestaShop storefront validation. Full integration
+and end-to-end testing remain deferred; Task 04 does not start that final phase.

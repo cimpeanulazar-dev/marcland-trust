@@ -9,11 +9,13 @@ class Module
     public static $parentInstall = true;
     public static $hook = true;
     public static $uninstalls = 0;
+    public static $registeredHooks = [];
     public function __construct() {}
     public function install() { return self::$parentInstall; }
     public function uninstall() { ++self::$uninstalls; return true; }
     public function registerHook($hook) {
-        check($hook === 'displayProductAdditionalInfo', 'existing hook');
+        self::$registeredHooks[] = $hook;
+        check(in_array($hook, ['displayProductAdditionalInfo', 'actionFrontControllerSetMedia'], true), 'supported hook');
         return self::$hook;
     }
     public function l($message) { return $message; }
@@ -39,6 +41,7 @@ function check($condition, $label) {
 require dirname(__DIR__) . '/marclandtrust.php';
 $module = new MarclandTrust();
 check($module->install(), 'install success');
+check(Module::$registeredHooks === ['displayProductAdditionalInfo', 'actionFrontControllerSetMedia'], 'both frontend hooks registered');
 $schema = Db::$queries;
 check(count($schema) === 2, 'two tables');
 foreach ($schema as $sql) {
