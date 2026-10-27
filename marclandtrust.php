@@ -62,24 +62,6 @@ class MarclandTrust extends Module
 
     private function handleConfigurationSubmit(): string
     {
-        $signals= Tools::getValue('trust_signals', []);
-        if (!is_array($signals)) {
-            return 'Trust signals should be an array';
-        }
-        foreach($signals as $signal) {
-            if (!is_string($signal)) {
-                return 'Invalid signal type';
-            }
-
-            $signal = trim($signal);
-            $validatedSignals[] = $signal;
-        }
-
-        return;
-    }
-
-    private function handleConfigurationSubmit(): string
-    {
         $signals = Tools::getValue('trust_signals', []);
 
         if (!is_array($signals)) {
