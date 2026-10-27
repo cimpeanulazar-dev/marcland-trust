@@ -47,8 +47,7 @@ Add (+) creates only an unsaved UI element, with `id_zone: null` or no persisten
 A temporary client key must remain separate. Only Save triggers PHP validation and
 INSERT, omitting `id_zone`; PHP retrieves `Db::getInstance()->Insert_ID()` on that
 same connection and uses it for localized rows. Existing zones retain database IDs;
-language switching never changes identity or creates a zone. No such UI or saving
-behavior is implemented here.
+language switching never changes identity or creates a zone. Task 02 implements the unsaved editor; database saving remains deferred.
 
 Future validation must allowlist icon/link types, check predefined names, restrict
 custom paths to controlled sanitized uploads, and validate link destinations.
@@ -71,3 +70,43 @@ installation success, repeatability, boolean and exception failures, registratio
 cleanup, hook failure and data-preserving uninstall. It does not constitute a real
 PrestaShop installation test. `--sql` emits the tested schema for database validation
 with the deliberately nondefault `test_shop_` prefix.
+
+
+## Configuration editor (Task 02)
+
+The administration page loads all installed languages, existing shared zones and
+translations, and CMS identifiers/titles for the current shop through read-only
+PrestaShop APIs. Both configuration assets use the existing admin controller.
+The language selector changes the value of the same visible input per zone without
+changing zone identity. Add creates a local key and a null persistent ID. Inactive
+zones count toward the three-zone limit; Move up/down updates display positions.
+Pre-existing excess rows are preserved for review/removal, with submission disabled
+until no more than three remain.
+
+Six original SVG icons are bundled under `views/img/icons`. The editor stores their
+identifiers. Custom selections retain a local File object and show the filename as
+text; they never render SVG, create a preview URL, upload, or submit the file.
+The browser file input may reset when cards are reordered, but the selected File
+remains in editor memory and its filename remains visible. Language changes retain
+the existing file input too.
+
+Save submits a normal POST. Hidden fields are rebuilt once per submission under
+`trust_signals[index]`, including an empty `id_zone` for new zones, numeric position,
+active flag, icon/link configuration and `text[id_lang]` for every installed
+language. `trust_signals_present=1` also represents an intentionally empty editor.
+Client keys and file objects are never serialized. Anchor inputs accept only an
+ASCII letter followed by letters, numbers, underscores or hyphens; CMS links use
+page IDs, not URLs. All client fields are untrusted and need server validation in
+Task 03, including existing IDs and custom paths.
+
+**Nothing is saved yet.** The placeholder POST handler displays a warning instead
+of success and reloads persisted data; unsaved edits and file selections are lost
+on submit/reload/navigation. Upload processing, authoritative validation, CSRF
+handling for writes, and transactional persistence remain Task 03 work. No frontend
+hook/template or database schema changes were made in Task 02. Language switches,
+adding, removing, and reordering make no backend calls.
+
+Task 02 checks: PHP 8.4 lint, standalone schema/lifecycle tests, JavaScript syntax,
+Smarty 4.5.6 compilation/rendering with a translation stub, matching JS/template
+selectors, and bundled SVG XML validation. Real PrestaShop administration behavior
+and complete integration/functional testing remain deferred as requested.

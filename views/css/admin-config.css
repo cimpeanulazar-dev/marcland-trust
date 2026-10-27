@@ -1,9 +1,26 @@
-#marclandtrust-items {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+#marclandtrust-editor { max-width: 1000px; }
+#marclandtrust-editor [hidden] { display: none !important; }
+#marclandtrust-editor .marclandtrust-item {
+    border: 1px solid #b8c1c9;
+    border-radius: 4px;
+    padding: 16px;
+    margin: 20px 0;
 }
-
-.marclandtrust-item {
-    margin-bottom: 16px;
+#marclandtrust-editor legend { width: auto; padding: 0 8px; font-size: 1.1em; }
+#marclandtrust-editor label { display: block; margin: 12px 0; }
+#marclandtrust-editor .form-control { max-width: 600px; margin-top: 6px; }
+#marclandtrust-editor .marclandtrust-actions,
+#marclandtrust-editor .marclandtrust-icons { display: flex; flex-wrap: wrap; gap: 8px; }
+#marclandtrust-editor button { padding: 8px 12px; min-height: 40px; }
+#marclandtrust-editor .marclandtrust-icons button {
+    display: flex; align-items: center; gap: 8px;
+    border: 2px solid #b8c1c9; border-radius: 4px; background: #fff; color: #243746;
 }
+#marclandtrust-editor .marclandtrust-icons button[aria-pressed="true"] {
+    border-color: #156698; background: #e4f3ff; font-weight: bold;
+}
+#marclandtrust-editor button:focus-visible,
+#marclandtrust-editor input:focus-visible,
+#marclandtrust-editor select:focus-visible { outline: 3px solid #156698; outline-offset: 3px; }
+#marclandtrust-editor button:disabled { opacity: .55; cursor: not-allowed; }
+#marclandtrust-editor [data-role="file-status"] { overflow-wrap: anywhere; }

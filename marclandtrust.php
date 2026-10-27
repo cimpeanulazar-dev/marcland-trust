@@ -114,7 +114,8 @@ class MarclandTrust extends Module
         $this->context->controller->addJS(
             $this->_path . 'views/js/admin-config.js'
         );
-        //Check if Submit is false
+        $this->context->controller->addCSS($this->_path . 'views/css/admin-config.css');
+        // Configuration persistence is intentionally deferred.
         if ($submit) {
             return $this->handleConfigurationSubmit();
         }
@@ -126,10 +127,47 @@ class MarclandTrust extends Module
 
     public function renderConfigurationForm()
     {
-        $items = [];
-
+        $languages = Language::getLanguages(false);
+        $zones = Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'marclandtrust_zone` ORDER BY `position`, `id_zone`'
+        );
+        $translations = Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_lang`'
+        );
+        if ($zones === false || $translations === false) {
+            return $this->displayError($this->l('Unable to load zones. Check that the module database schema is installed.'));
+        }
+        $texts = [];
+        foreach ($translations as $row) {
+            $texts[(int) $row['id_zone']][(int) $row['id_lang']] = $row['text'];
+        }
+        foreach ($zones as &$zone) {
+            $zone['id_zone'] = (int) $zone['id_zone'];
+            $zone['active'] = (bool) $zone['active'];
+            $zone['texts'] = (object) ($texts[$zone['id_zone']] ?? []);
+        }
+        unset($zone);
+        $cmsPages = [];
+        foreach ($languages as $language) {
+            $pages = CMS::getCMSPages((int) $language['id_lang'], null, false, (int) $this->context->shop->id);
+            if ($pages === false) {
+                return $this->displayError($this->l('Unable to load CMS pages. Check database access before editing zones.'));
+            }
+            foreach ($pages as $page) {
+                $id = (int) $page['id_cms'];
+                $cmsPages[$id]['id'] = $id;
+                $cmsPages[$id]['titles'][(int) $language['id_lang']] = $page['meta_title'];
+            }
+        }
         $this->context->smarty->assign([
-            'trust_items' => $items,
+            'trust_editor_data' => json_encode([
+                'languages' => $languages,
+                'language' => (int) $this->context->language->id,
+                'zones' => $zones,
+                'cmsPages' => array_values($cmsPages),
+                'maxZones' => self::MAX_ZONES,
+                'iconBase' => $this->_path . 'views/img/icons/',
+            ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR),
         ]);
 
         return $this->fetch(
@@ -139,31 +177,7 @@ class MarclandTrust extends Module
 
     private function handleConfigurationSubmit(): string
     {
-        $signals = Tools::getValue('trust_signals', []);
-
-        if (!is_array($signals)) {
-            return $this->displayError('Invalid form data.')
-                . $this->renderConfigurationForm();
-        }
-
-        foreach ($signals as $index => $text) {
-            if (!is_string($text)) {
-                continue;
-            }
-
-            $text = trim($text);
-
-            if ($text === '') {
-                continue;
-            }
-
-            PrestaShopLogger::addLog(
-                sprintf('Trust signal [%s]: %s', $index, $text),
-                1
-            );
-        }
-
-        return $this->displayConfirmation('Form data received.')
+        return $this->displayWarning($this->l('Configuration was not saved. Database persistence and custom SVG processing are pending the next task.'))
             . $this->renderConfigurationForm();
     }
 
