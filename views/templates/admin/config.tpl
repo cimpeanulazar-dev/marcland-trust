@@ -7,21 +7,21 @@
         <input type="hidden" name="trust_revision" value="{$trust_revision|escape:'html':'UTF-8'}">
         <label for="marclandtrust-language">{l s='Editing language' mod='marclandtrust'}</label>
         <select id="marclandtrust-language" class="form-control"></select>
-        <p id="marclandtrust-status" aria-label="{l s='Zone count' mod='marclandtrust'}" role="status" aria-live="polite"></p>
+        <p id="marclandtrust-status" aria-label="{l s='Signal count' mod='marclandtrust'}" role="status" aria-live="polite"></p>
         <div id="marclandtrust-items"></div>
         <div id="marclandtrust-serialized"></div>
-        <button type="button" id="marclandtrust-add-item" class="btn btn-default">+ {l s='Add zone' mod='marclandtrust'}</button>
+        <button type="button" id="marclandtrust-add-item" class="btn btn-default">+ {l s='Add signal' mod='marclandtrust'}</button>
         <button type="submit" name="submitMarclandTrust" value="1" class="btn btn-primary">{l s='Save' mod='marclandtrust'}</button>
     </form>
     <template id="marclandtrust-zone-template">
         <fieldset class="marclandtrust-item">
-            <legend>{l s='Trust signal zone' mod='marclandtrust'} <span data-role="number"></span></legend>
+            <legend>{l s='Trust Signal' mod='marclandtrust'} <span data-role="number"></span></legend>
             <div class="marclandtrust-actions">
                 <button type="button" data-action="up">↑ {l s='Move up' mod='marclandtrust'}</button>
                 <button type="button" data-action="down">↓ {l s='Move down' mod='marclandtrust'}</button>
                 <button type="button" data-action="remove">{l s='Remove' mod='marclandtrust'}</button>
             </div>
-            <label><input type="checkbox" data-field="active"> {l s='Enabled' mod='marclandtrust'}</label>
+            <label><input type="checkbox" data-field="active"> {l s='Globally active' mod='marclandtrust'}</label>
             <label>{l s='Localized message' mod='marclandtrust'} <input type="text" class="form-control" data-field="text" placeholder="{l s='No translation yet — enter a message' mod='marclandtrust'}"></label>
             <label>{l s='Icon source' mod='marclandtrust'}
                 <select data-field="icon_type" class="form-control">
@@ -48,15 +48,33 @@
                 <p data-role="file-status" role="status"></p>
                 <img data-role="custom-preview" width="48" height="48" alt="{l s='Saved custom icon' mod='marclandtrust'}" hidden>
             </div>
-            <label>{l s='Link destination' mod='marclandtrust'}
-                <select data-field="link_type" class="form-control">
-                    <option value="none">{l s='No link' mod='marclandtrust'}</option>
-                    <option value="cms">{l s='CMS page' mod='marclandtrust'}</option>
-                    <option value="anchor">{l s='Internal page anchor' mod='marclandtrust'}</option>
-                </select>
-            </label>
-            <label data-role="cms-label">{l s='CMS page' mod='marclandtrust'} <select data-field="cms" class="form-control"><option value="">{l s='Select a CMS page' mod='marclandtrust'}</option></select></label>
-            <label data-role="anchor-label">{l s='Anchor identifier (without #)' mod='marclandtrust'} <input type="text" data-field="anchor" class="form-control" pattern="[A-Za-z][A-Za-z0-9_-]*" maxlength="128" placeholder="product-details"></label>
+            <p class="help-block">{l s='Choose display locations below. List buttons organize the editor only; each location has its own display order.' mod='marclandtrust'}</p>
+            {foreach ['home', 'product', 'checkout'] as $placement}
+                <details class="marclandtrust-placement" data-placement="{$placement|escape:'html':'UTF-8'}">
+                    <summary>
+                        {if $placement == 'home'}{l s='Homepage' mod='marclandtrust'}
+                        {elseif $placement == 'product'}{l s='Product page' mod='marclandtrust'}
+                        {else}{l s='Checkout' mod='marclandtrust'}{/if}
+                        — <span data-p-role="status" data-enabled="{l s='Selected' mod='marclandtrust'}" data-disabled="{l s='Not selected' mod='marclandtrust'}"></span>
+                    </summary>
+                    <label><input type="checkbox" data-p-field="enabled"> {l s='Show at this location' mod='marclandtrust'}</label>
+                    <div data-p-role="settings">
+                        <label>{l s='Display order (lower numbers first)' mod='marclandtrust'} <input type="number" min="0" max="4294967295" step="1" data-p-field="position" class="form-control"></label>
+                        <label>{l s='Click action' mod='marclandtrust'}
+                            <select data-p-field="link_type" class="form-control">
+                                <option value="none">{l s='No link' mod='marclandtrust'}</option>
+                                <option value="cms">{l s='CMS page' mod='marclandtrust'}</option>
+                                {if $placement != 'checkout'}<option value="anchor">{l s='Anchor on this page' mod='marclandtrust'}</option>{/if}
+                            </select>
+                        </label>
+                        <label data-p-role="cms-label">{l s='CMS page' mod='marclandtrust'} <select data-p-field="cms" class="form-control"><option value="">{l s='Select a CMS page' mod='marclandtrust'}</option></select></label>
+                        <label data-p-role="anchor-label">{l s='Anchor identifier on this page (without #)' mod='marclandtrust'} <input type="text" data-p-field="anchor" class="form-control" pattern="[A-Za-z][A-Za-z0-9_-]*" maxlength="128"></label>
+                        {if $placement == 'checkout'}<p>{l s='CMS links open a new tab so checkout stays open. Anchors are not supported here.' mod='marclandtrust'}</p>
+                        {else}<p>{l s='Anchors must exist in this page’s theme. They never navigate to another page.' mod='marclandtrust'}</p>{/if}
+                        <p>{l s='An unavailable CMS destination is displayed as plain text.' mod='marclandtrust'}</p>
+                    </div>
+                </details>
+            {/foreach}
         </fieldset>
     </template>
 </div>

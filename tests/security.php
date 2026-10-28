@@ -12,7 +12,8 @@ function requestFixture(): array {
         'trust_signals_present' => '1', 'trust_payload_complete' => '1', 'trust_revision' => str_repeat('a', 64),
         'trust_signals' => [[
             'id_zone' => '', 'position' => '1', 'active' => '1', 'icon_type' => 'predefined',
-            'icon_name' => 'truck', 'custom_icon_path' => '', 'link_type' => 'none', 'link_target' => '',
+            'icon_name' => 'truck', 'custom_icon_path' => '',
+            'placements' => array_fill_keys(MarclandTrustConfiguration::PLACEMENTS, ['enabled'=>'0','position'=>'1','link_type'=>'none','link_target'=>'']),
             'upload_selected' => '0', 'text' => [17 => 'Livrare sigură 🚚 & "rapidă"', 29 => ''],
         ]],
     ];
@@ -35,15 +36,30 @@ $post = requestFixture(); unset($post['trust_payload_complete']);
 rejects(static function () use ($validate,$post) { $validate($post); }, 'truncated payload accepted');
 $post = requestFixture(); $post['trust_signals'][0]['unexpected'] = 'value';
 rejects(static function () use ($validate,$post) { $validate($post); }, 'unknown field accepted');
-$post = requestFixture(); $post['trust_signals'] = array_fill(0, 4, $post['trust_signals'][0]);
-rejects(static function () use ($validate,$post) { $validate($post); }, 'four zones accepted');
-$post = requestFixture(); $post['trust_signals'][0]['link_type'] = 'anchor'; $post['trust_signals'][0]['link_target'] = 'product-details';
+$post = requestFixture();
+for ($i=1;$i<6;$i++) { $row=requestFixture()['trust_signals'][0]; $row['position']=(string)($i+1); $post['trust_signals'][]=$row; }
+ensure(count($validate($post)['zones'])===6, 'six signals rejected or truncated');
+$cmsCalls=0;
+foreach($post['trust_signals'] as &$signal){foreach($signal['placements'] as &$settings){$settings['link_type']='cms';$settings['link_target']='42';}unset($settings);}unset($signal);
+MarclandTrustConfiguration::validate($post,[17,29],static function($id)use(&$cmsCalls){++$cmsCalls;return $id===42;});
+ensure($cmsCalls===1,'repeated CMS validation performed redundant lookups');
+$post = requestFixture(); $post['trust_signals'][0]['placements']['product']['link_type'] = 'anchor'; $post['trust_signals'][0]['placements']['product']['link_target'] = 'product-details';
 $validate($post);
-$post['trust_signals'][0]['link_target'] = 'javascript:bad';
+$post['trust_signals'][0]['placements']['product']['link_target'] = 'javascript:bad';
 rejects(static function () use ($validate,$post) { $validate($post); }, 'bad anchor accepted');
-$post['trust_signals'][0]['link_type'] = 'cms'; $post['trust_signals'][0]['link_target'] = '42'; $validate($post);
-$post['trust_signals'][0]['link_target'] = '43';
+$post['trust_signals'][0]['placements']['product']['link_type'] = 'cms'; $post['trust_signals'][0]['placements']['product']['link_target'] = '42'; $validate($post);
+$post['trust_signals'][0]['placements']['product']['link_target'] = '43';
 rejects(static function () use ($validate,$post) { $validate($post); }, 'unknown CMS accepted');
+foreach ([['evil'=>[]], ['home'=>[]], 'invalid'] as $placements) {
+    $post=requestFixture(); $post['trust_signals'][0]['placements']=$placements;
+    rejects(static function () use ($validate,$post) { $validate($post); }, 'invalid placement accepted');
+}
+$post=requestFixture();$post['trust_signals'][0]['placements']['checkout']['link_type']='anchor';$post['trust_signals'][0]['placements']['checkout']['link_target']='checkout-payment-step';
+rejects(static function () use ($validate,$post) { $validate($post); }, 'checkout anchor accepted');
+$post=requestFixture();$post['trust_signals'][0]['placements']['home']['position']='4294967296';
+rejects(static function () use ($validate,$post) { $validate($post); }, 'overflow placement position');
+$post=requestFixture();$post['oversized']=str_repeat('x',MarclandTrustConfiguration::MAX_METADATA_BYTES);
+rejects(static function () use ($validate,$post) { $validate($post); }, 'metadata budget not enforced');
 $post = requestFixture(); $post['trust_signals'][0]['id_zone'] = '8'; $post['trust_deleted'] = ['8'];
 rejects(static function () use ($validate,$post) { $validate($post); }, 'conflicting delete accepted');
 $post = requestFixture(); $post['trust_signals'][0]['id_zone'] = '8';

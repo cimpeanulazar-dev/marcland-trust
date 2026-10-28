@@ -12,13 +12,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const status = root.querySelector('#marclandtrust-status');
     const icons = ['truck', 'returns', 'shield', 'lock', 'support', 'verified'];
     const deleted = new Set((config.deletedIds || []).map(String));
+    const placementNames = config.placements;
     let nextKey = 0;
     let language = String(config.language);
-    const zones = config.zones.map(zone => ({
+    const normalizePlacements = (values, position) => Object.fromEntries(placementNames.map(name => {
+        const p = values && values[name] || {};
+        return [name, {enabled: p.enabled === true || String(p.enabled) === '1', position: p.position ?? position,
+            link_type: p.link_type || 'none', link_target: p.link_target || null}];
+    }));
+    const zones = config.zones.map((zone, index) => ({
         ...zone,
         // Separate namespace: never serialize this temporary UI key.
         client_key: `zone-${++nextKey}`,
         texts: {...zone.texts},
+        placements: normalizePlacements(zone.placements, index + 1),
         icon_name: zone.icon_name || 'truck',
         file: null,
     }));
@@ -31,8 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
     languageSelect.value = language;
 
     function captureTexts() {
+        const byKey = new Map(zones.map(zone => [zone.client_key, zone]));
         list.querySelectorAll('[data-client-key]').forEach(card => {
-            const zone = zones.find(item => item.client_key === card.dataset.clientKey);
+            const zone = byKey.get(card.dataset.clientKey);
             if (zone && language) zone.texts[language] = card.querySelector('[data-field="text"]').value;
         });
     }
@@ -44,18 +52,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const lang = config.languages.find(item => String(item.id_lang) === language);
         text.lang = lang ? lang.language_code || lang.iso_code : '';
         text.dir = lang && Number(lang.is_rtl) ? 'rtl' : 'ltr';
-        const cms = card.querySelector('[data-field="cms"]');
-        // Retain the translated placeholder from the Smarty template.
-        while (cms.options.length > 1) cms.remove(1);
-        config.cmsPages.forEach(page => {
-            const title = page.titles[language] || Object.values(page.titles)[0] || String(page.id);
-            cms.add(new Option(`${title} (#${page.id})`, String(page.id)));
+        card.querySelectorAll('[data-placement]').forEach(panel => {
+            const p = zone.placements[panel.dataset.placement];
+            const cms = panel.querySelector('[data-p-field="cms"]');
+            while (cms.options.length > 1) cms.remove(1);
+            config.cmsPages.forEach(page => {
+                const title = page.titles[language] || Object.values(page.titles)[0] || String(page.id);
+                cms.add(new Option(`${title} (#${page.id})`, String(page.id)));
+            });
+            if (p.link_type === 'cms' && p.link_target
+                && !Array.from(cms.options).some(option => option.value === String(p.link_target))) {
+                cms.add(new Option(`#${p.link_target}`, String(p.link_target)));
+            }
+            cms.value = p.link_type === 'cms' ? String(p.link_target || '') : '';
         });
-        if (zone.link_type === 'cms' && zone.link_target
-            && !Array.from(cms.options).some(option => option.value === String(zone.link_target))) {
-            cms.add(new Option(`#${zone.link_target}`, String(zone.link_target)));
-        }
-        cms.value = zone.link_type === 'cms' ? String(zone.link_target || '') : '';
     }
 
     function render() {
@@ -107,28 +117,39 @@ document.addEventListener('DOMContentLoaded', () => {
             // Only previously saved sanitized files get an image reference. No local SVG previews.
             role('file-status').textContent = zone.file ? zone.file.name : (zone.custom_icon_path || '');
             updateIcons();
-            field('link_type').value = zone.link_type;
-            localizeCard(card, zone);
-            field('anchor').value = zone.link_type === 'anchor' ? zone.link_target || '' : '';
-            const updateLink = () => {
-                const cms = zone.link_type === 'cms';
-                const anchor = zone.link_type === 'anchor';
-                role('cms-label').hidden = !cms;
-                role('anchor-label').hidden = !anchor;
-                field('cms').disabled = !cms;
-                field('cms').required = cms;
-                field('anchor').disabled = !anchor;
-                field('anchor').required = anchor;
-            };
-            field('link_type').addEventListener('change', event => {
-                zone.link_type = event.target.value;
-                zone.link_target = zone.link_type === 'cms' ? field('cms').value
-                    : zone.link_type === 'anchor' ? field('anchor').value : null;
-                updateLink();
+            card.querySelectorAll('[data-placement]').forEach(panel => {
+                const p = zone.placements[panel.dataset.placement];
+                const input = name => panel.querySelector(`[data-p-field="${name}"]`);
+                const part = name => panel.querySelector(`[data-p-role="${name}"]`);
+                input('enabled').checked = p.enabled;
+                input('position').value = p.position;
+                input('link_type').value = p.link_type;
+                input('anchor').value = p.link_type === 'anchor' ? p.link_target || '' : '';
+                panel.open = p.enabled;
+                const update = () => {
+                    part('settings').hidden = !p.enabled;
+                    part('status').textContent = p.enabled ? part('status').dataset.enabled : part('status').dataset.disabled;
+                    input('position').disabled = !p.enabled;
+                    input('link_type').disabled = !p.enabled;
+                    part('cms-label').hidden = p.link_type !== 'cms';
+                    part('anchor-label').hidden = p.link_type !== 'anchor';
+                    input('cms').disabled = !p.enabled || p.link_type !== 'cms';
+                    input('cms').required = p.enabled && p.link_type === 'cms';
+                    input('anchor').disabled = !p.enabled || p.link_type !== 'anchor';
+                    input('anchor').required = p.enabled && p.link_type === 'anchor';
+                };
+                input('enabled').addEventListener('change', event => { p.enabled = event.target.checked; update(); });
+                input('position').addEventListener('input', event => { p.position = event.target.value; });
+                input('link_type').addEventListener('change', event => {
+                    p.link_type = event.target.value;
+                    p.link_target = p.link_type === 'cms' ? input('cms').value : p.link_type === 'anchor' ? input('anchor').value : null;
+                    update();
+                });
+                input('cms').addEventListener('change', event => { p.link_target = event.target.value; });
+                input('anchor').addEventListener('input', event => { p.link_target = event.target.value; });
+                update();
             });
-            field('cms').addEventListener('change', event => { zone.link_target = event.target.value; });
-            field('anchor').addEventListener('input', event => { zone.link_target = event.target.value; });
-            updateLink();
+            localizeCard(card, zone);
             card.querySelector('[data-action="remove"]').addEventListener('click', () => {
                 captureTexts();
                 if (zone.id_zone !== null) deleted.add(String(zone.id_zone));
@@ -151,9 +172,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             list.appendChild(card);
         });
-        add.disabled = zones.length >= config.maxZones || !language;
-        form.querySelector('[type="submit"]').disabled = zones.length > config.maxZones || !language;
-        status.textContent = `${zones.length} / ${config.maxZones}`;
+        add.disabled = !language;
+        form.querySelector('[type="submit"]').disabled = !language;
+        status.textContent = String(zones.length);
     }
 
     languageSelect.addEventListener('change', () => {
@@ -163,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Array.from(list.children).forEach((card, index) => localizeCard(card, zones[index]));
     });
     add.addEventListener('click', () => {
-        if (zones.length >= config.maxZones || !language) return;
+        if (!language) return;
         captureTexts();
         zones.push({
             id_zone: null,
@@ -171,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
             position: zones.length + 1,
             active: true,
             icon_type: 'predefined', icon_name: 'truck', custom_icon_path: null,
-            link_type: 'none', link_target: null, texts: {}, file: null,
+            placements: normalizePlacements(null, zones.length + 1), texts: {}, file: null,
         });
         render();
         list.lastElementChild.querySelector('[data-field="text"]').focus();
@@ -179,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     form.addEventListener('submit', event => {
         captureTexts();
         serialized.replaceChildren();
-        if (zones.length > config.maxZones || !language) {
+        if (!language) {
             event.preventDefault();
             return;
         }
@@ -196,11 +217,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // File field indices match serialized zone indices after all edits/reordering.
             zone.fileInput.name = `trust_icons[${index}]`;
             const prefix = `trust_signals[${index}]`;
-            ['id_zone', 'position', 'icon_type', 'icon_name', 'custom_icon_path', 'link_type', 'link_target'].forEach(key => {
+            ['id_zone', 'position', 'icon_type', 'icon_name', 'custom_icon_path'].forEach(key => {
                 hidden(`${prefix}[${key}]`, zone[key]);
             });
             hidden(`${prefix}[active]`, zone.active ? '1' : '0');
             hidden(`${prefix}[upload_selected]`, zone.icon_type === 'custom' && zone.file ? '1' : '0');
+            placementNames.forEach(name => {
+                const p = zone.placements[name];
+                ['position', 'link_type', 'link_target'].forEach(key => hidden(`${prefix}[placements][${name}][${key}]`, p[key]));
+                hidden(`${prefix}[placements][${name}][enabled]`, p.enabled ? '1' : '0');
+            });
             config.languages.forEach(lang => {
                 hidden(`${prefix}[text][${lang.id_lang}]`, zone.texts[String(lang.id_lang)] || '');
             });

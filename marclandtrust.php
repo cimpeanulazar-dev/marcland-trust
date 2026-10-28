@@ -10,20 +10,18 @@ class MarclandTrust extends Module
     {
         $this->name = 'marclandtrust';
         $this->tab = 'front_office_features';
-        $this->version = '0.2.0';
+        $this->version = '0.3.0';
         $this->author = 'MARCLAND';
 
         parent::__construct();
 
         $this->displayName = 'MARCLAND Trust Signals';
-        $this->description = 'Configurable product trust information';
+        $this->description = 'Configurable trust information for homepage, product and checkout';
     }
     private $submittedZones = null;
     private $submittedRevision = null;
     private $submittedDeleted = [];
 
-    /** Maximum enforced by the validated configuration save, not by IDs. */
-    public const MAX_ZONES = 3;
 
     public function install(): bool
     {
@@ -34,7 +32,9 @@ class MarclandTrust extends Module
         try {
             if (!$this->installSchema()
                 || !$this->registerHook('displayProductAdditionalInfo')
-                || !$this->registerHook('actionFrontControllerSetMedia')) {
+                || !$this->registerHook('actionFrontControllerSetMedia')
+                || !$this->registerHook('displayHome')
+                || !$this->registerHook('displayCheckoutSummaryTop')) {
                 throw new RuntimeException('Schema creation or hook registration failed.');
             }
         } catch (Throwable $exception) {
@@ -55,7 +55,7 @@ class MarclandTrust extends Module
     }
 
     /**
-     * Additive and repeatable; never alters or replaces an existing table.
+     * Additive and repeatable; preserves existing rows and widens legacy ordering.
      * Shared across all shops in this PrestaShop installation.
      */
     public function installSchema(): bool
@@ -63,7 +63,7 @@ class MarclandTrust extends Module
         $queries = [
             'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'marclandtrust_zone` (
                 `id_zone` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `position` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+                `position` INT UNSIGNED NOT NULL DEFAULT 0,
                 `active` TINYINT UNSIGNED NOT NULL DEFAULT 1,
                 `icon_type` VARCHAR(16) NOT NULL DEFAULT \'predefined\',
                 `icon_name` VARCHAR(128) DEFAULT NULL,
@@ -96,6 +96,16 @@ class MarclandTrust extends Module
             return false;
         }
 
+        try {
+            require_once __DIR__ . '/classes/TrustSchema.php';
+            if (!MarclandTrustSchema::migrate(Db::getInstance(true))) {
+                $this->_errors[] = $this->l('Unable to prepare placement tables. Retry the module upgrade after checking database permissions.');
+                return false;
+            }
+        } catch (Throwable $exception) {
+            $this->_errors[] = $this->l('Unable to prepare placement tables. Retry the module upgrade after checking database permissions.');
+            return false;
+        }
         return true;
     }
 
@@ -117,9 +127,9 @@ class MarclandTrust extends Module
 
         // Load JavaScript for the module configuration page.
         $this->context->controller->addJS(
-            $this->_path . 'views/js/admin-config.js'
+            $this->_path . 'views/js/admin-config.js?v=' . $this->version
         );
-        $this->context->controller->addCSS($this->_path . 'views/css/admin-config.css');
+        $this->context->controller->addCSS($this->_path . 'views/css/admin-config.css?v=' . $this->version);
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && empty($_POST) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
             return $this->displayError($this->l('The submission exceeded the server upload limit. Reduce the upload size and try again.'))
                 . $this->renderConfigurationForm();
@@ -148,10 +158,15 @@ class MarclandTrust extends Module
         foreach ($translations as $row) {
             $texts[(int) $row['id_zone']][(int) $row['id_lang']] = $row['text'];
         }
+        $placementSettings = [];
+        foreach ($saved['placements'] as $placement) {
+            $placementSettings[(int) $placement['id_zone']][$placement['placement']] = $placement;
+        }
         foreach ($zones as &$zone) {
             $zone['id_zone'] = (int) $zone['id_zone'];
             $zone['active'] = (bool) $zone['active'];
             $zone['texts'] = (object) ($texts[$zone['id_zone']] ?? []);
+            $zone['placements'] = (object) ($placementSettings[$zone['id_zone']] ?? []);
         }
         unset($zone);
         if ($this->submittedZones !== null) {
@@ -181,7 +196,7 @@ class MarclandTrust extends Module
                 'deletedIds' => $this->submittedDeleted,
                 'customBase' => $this->_path,
                 'cmsPages' => array_values($cmsPages),
-                'maxZones' => self::MAX_ZONES,
+                'placements' => MarclandTrustConfiguration::PLACEMENTS,
                 'iconBase' => $this->_path . 'views/img/icons/',
             ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR),
         ]);
@@ -258,7 +273,11 @@ class MarclandTrust extends Module
             return;
         }
         $this->submittedZones = [];
-        foreach (array_slice($rows, 0, 20) as $row) {
+        if (strlen(json_encode($rows, JSON_INVALID_UTF8_SUBSTITUTE)) > MarclandTrustConfiguration::MAX_METADATA_BYTES) {
+            $this->submittedZones = null;
+            return;
+        }
+        foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
@@ -275,6 +294,17 @@ class MarclandTrust extends Module
                 }
             }
             $zone['texts'] = (object) $zone['texts'];
+            $zone['placements'] = [];
+            $provided = is_array($row['placements'] ?? null) ? $row['placements'] : [];
+            foreach (MarclandTrustConfiguration::PLACEMENTS as $placement) {
+                $settings = is_array($provided[$placement] ?? null) ? $provided[$placement] : [];
+                $zone['placements'][$placement] = [
+                    'enabled' => ($settings['enabled'] ?? '') === '1',
+                    'position' => is_string($settings['position'] ?? null) ? substr($settings['position'], 0, 10) : '1',
+                    'link_type' => is_string($settings['link_type'] ?? null) ? substr($settings['link_type'], 0, 16) : 'none',
+                    'link_target' => is_string($settings['link_target'] ?? null) ? substr($settings['link_target'], 0, 2048) : '',
+                ];
+            }
             $this->submittedZones[] = $zone;
         }
         if (is_string($_POST['trust_revision'] ?? null) && preg_match('/\A[a-f0-9]{64}\z/D', $_POST['trust_revision'])) {
@@ -289,27 +319,48 @@ class MarclandTrust extends Module
 
     public function hookActionFrontControllerSetMedia($params): void
     {
-        if (($this->context->controller->php_self ?? '') === 'product') {
+        if (in_array($this->context->controller->php_self ?? '', ['index', 'product', 'order'], true)) {
             $this->context->controller->registerStylesheet(
                 'module-marclandtrust-front',
                 'modules/' . $this->name . '/views/css/front.css',
-                ['media' => 'all', 'priority' => 150]
+                ['media' => 'all', 'priority' => 150, 'version' => $this->version]
             );
         }
     }
 
     public function hookDisplayProductAdditionalInfo($params)
     {
+        return $this->renderPlacement('product', 'product');
+    }
+
+    public function hookDisplayHome($params)
+    {
+        return $this->renderPlacement('home', 'index');
+    }
+
+    public function hookDisplayCheckoutSummaryTop($params)
+    {
+        return $this->renderPlacement('checkout', 'order');
+    }
+
+    private function renderPlacement(string $placement, string $controller): string
+    {
+        // A theme may invoke a shared hook on another page. Never resolve anchors in that context.
+        if (($this->context->controller->php_self ?? '') !== $controller) {
+            return '';
+        }
         try {
             require_once __DIR__ . '/classes/TrustFront.php';
-            $zones = MarclandTrustFront::zones(Db::getInstance(true), $this->context, __DIR__, $this->_path);
+            $zones = MarclandTrustFront::zones(Db::getInstance(true), $this->context, __DIR__, $this->_path, $placement);
             if (!$zones) {
                 return '';
             }
-            $this->context->smarty->assign('marcland_trust_zones', $zones);
+            $this->context->smarty->assign([
+                'marcland_trust_zones' => $zones,
+                'marcland_trust_placement' => $placement,
+            ]);
             return $this->fetch('module:marclandtrust/views/templates/hook/trust-signals.tpl');
         } catch (Throwable $ignored) {
-            // Missing schema or unavailable configuration must not break the product page.
             return '';
         }
     }

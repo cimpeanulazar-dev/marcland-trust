@@ -35,3 +35,11 @@
     outline: 2px solid currentColor;
     outline-offset: 3px;
 }
+
+/* Context-specific layout; child flex basis must not impose row heights. */
+.marclandtrust-signals--product,
+.marclandtrust-signals--checkout { flex-direction: column; }
+.marclandtrust-signals--product .marclandtrust-signals__zone,
+.marclandtrust-signals--checkout .marclandtrust-signals__zone { flex: 0 1 auto; }
+.marclandtrust-signals--checkout { gap: .5rem; margin: .5rem 0; font-size: .875rem; }
+.marclandtrust-signals .marclandtrust-signals__new-window { font-size: .85em; }

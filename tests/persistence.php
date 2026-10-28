@@ -49,10 +49,16 @@ function postFrom($store): array {
     $post = ['trust_signals_present' => '1', 'trust_payload_complete' => '1', 'trust_revision' => MarclandTrustConfiguration::revision($saved), 'trust_signals' => []];
     foreach ($saved['zones'] as $index => $zone) {
         $row = requestFixture()['trust_signals'][0];
-        foreach (['id_zone','position','active','icon_type','icon_name','custom_icon_path','link_type','link_target'] as $field) {
+        foreach (['id_zone','position','active','icon_type','icon_name','custom_icon_path'] as $field) {
             $row[$field] = (string) ($zone[$field] ?? '');
         }
         $row['icon_name'] = $row['icon_name'] ?: 'truck';
+        foreach ($saved['placements'] as $p) {
+            if ((int)$p['id_zone']===(int)$zone['id_zone'] && in_array($p['placement'],MarclandTrustConfiguration::PLACEMENTS,true)) {
+                $row['placements'][$p['placement']]=array_map('strval',array_intersect_key($p,array_flip(['enabled','position','link_type','link_target'])));
+                $row['placements'][$p['placement']]['link_target']=(string)($p['link_target']??'');
+            }
+        }
         $row['text'] = [17 => '', 29 => ''];
         foreach ($saved['translations'] as $text) {
             if ((int) $text['id_zone'] === (int) $zone['id_zone']) { $row['text'][(int) $text['id_lang']] = $text['text']; }
@@ -87,11 +93,20 @@ try {
     $save($post);
     ensure((string) $store->load()['zones'][0]['active'] === '0' && count($store->load()['translations']) === 1, 'update/empty translation removal');
     $post = postFrom($store);
-    for ($index = 1; $index < 3; ++$index) {
+    for ($index = 1; $index < 6; ++$index) {
         $row = requestFixture()['trust_signals'][0]; $row['position'] = (string) ($index + 1); $post['trust_signals'][] = $row;
     }
     $save($post);
-    ensure(count($store->load()['zones']) === 3, 'three zones saved including inactive');
+    ensure(count($store->load()['zones']) === 6, 'six signals saved including inactive');
+    $pdo->exec("INSERT INTO test_shop_marclandtrust_zone_placement VALUES (".(int)$id.",'category',1,1,'none',NULL)");
+    $post=postFrom($store);$post['trust_signals'][0]['placements']['home']=['enabled'=>'1','position'=>'9','link_type'=>'none','link_target'=>''];
+    $post['trust_signals'][0]['placements']['product']=['enabled'=>'1','position'=>'2','link_type'=>'cms','link_target'=>'42'];
+    $save($post);$placementsBefore=$store->load()['placements'];
+    $post=postFrom($store);$post['trust_signals'][0]['placements']['home']['position']='0';$save($post);
+    $productBefore=array_values(array_filter($placementsBefore,static function($p){return $p['placement']==='product';}));
+    $productAfter=array_values(array_filter($store->load()['placements'],static function($p){return $p['placement']==='product';}));
+    ensure($productBefore===$productAfter,'homepage edit modified product settings');
+    ensure((int)$pdo->query("SELECT COUNT(*) FROM test_shop_marclandtrust_zone_placement WHERE placement='category'")->fetchColumn()===1,'future placement discarded');
     $before = $store->load();
     $post = postFrom($store); $post['trust_signals'][0]['text'][17] = 'must roll back';
     $post['trust_signals'][0]['icon_type'] = 'custom';
@@ -114,7 +129,7 @@ try {
     $post = postFrom($store); $custom = $post['trust_signals'][0]['custom_icon_path'];
     $post['trust_deleted'] = array_column($post['trust_signals'], 'id_zone'); $post['trust_signals'] = [];
     $save($post);
-    ensure($store->load() === ['zones'=>[], 'translations'=>[]], 'explicit deletion did not remove all rows');
+    ensure($store->load() === ['zones'=>[], 'translations'=>[], 'placements'=>[]], 'explicit deletion did not remove all rows');
     ensure(!is_file($directory . '/' . basename($custom)), 'deleted icon not retired');
     echo "PASS: MariaDB create/update/delete, Unicode, lock contention, stale/unknown IDs, rollback and icon lifecycle\n";
 } finally {

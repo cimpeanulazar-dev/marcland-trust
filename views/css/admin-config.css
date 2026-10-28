@@ -24,3 +24,5 @@
 #marclandtrust-editor select:focus-visible { outline: 3px solid #156698; outline-offset: 3px; }
 #marclandtrust-editor button:disabled { opacity: .55; cursor: not-allowed; }
 #marclandtrust-editor [data-role="file-status"] { overflow-wrap: anywhere; }
+#marclandtrust-editor .marclandtrust-placement { margin-top: 12px; border-top: 1px solid #d8dee3; padding: 10px 0; }
+#marclandtrust-editor .marclandtrust-placement summary { cursor: pointer; font-weight: 600; }

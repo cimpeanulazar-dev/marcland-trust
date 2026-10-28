@@ -21,9 +21,9 @@ if (($argv[1]??'')==='--worker') {
     $worker=$argv[2];$barrier=$argv[3];
     $revision=MarclandTrustConfiguration::revision($store->load());
     $post=['trust_signals_present'=>'1','trust_payload_complete'=>'1','trust_revision'=>$revision,'trust_signals'=>[]];
-    for($i=0;$i<3;$i++){$post['trust_signals'][]=[
+    for($i=0;$i<6;$i++){$post['trust_signals'][]=[
         'id_zone'=>'','position'=>(string)($i+1),'active'=>$i===0?'0':'1','icon_type'=>'predefined','icon_name'=>'truck',
-        'custom_icon_path'=>'','link_type'=>'none','link_target'=>'','upload_selected'=>'0','text'=>[17=>'Worker '.$worker,29=>''],
+        'custom_icon_path'=>'','placements'=>array_fill_keys(MarclandTrustConfiguration::PLACEMENTS,['enabled'=>'1','position'=>(string)($i+1),'link_type'=>'none','link_target'=>'']),'upload_selected'=>'0','text'=>[17=>'Worker '.$worker,29=>''],
     ];}
     $configuration=MarclandTrustConfiguration::validate($post,[17,29],static function(){return false;});
     touch($barrier.'.'.$worker);$deadline=microtime(true)+10;
@@ -49,8 +49,8 @@ try {
         if(proc_close($process)!==0){throw new RuntimeException('Worker failed: '.$error);}
     }
     sort($results);$saved=$store->load();
-    if($results!==['COMMITTED','STALE']||count($saved['zones'])!==3||count(array_unique(array_column($saved['translations'],'text')))!==1){throw new RuntimeException('Concurrent save integrity failure.');}
-    echo "PASS: simultaneous three-zone saves: one committed, one stale; three coherent rows including an inactive zone\n";
+    if($results!==['COMMITTED','STALE']||count($saved['zones'])!==6||count(array_unique(array_column($saved['translations'],'text')))!==1){throw new RuntimeException('Concurrent save integrity failure.');}
+    echo "PASS: simultaneous six-signal saves: one committed, one stale; six coherent rows including an inactive zone\n";
 } finally {
     foreach([$barrier,$barrier.'.A',$barrier.'.B'] as $file){@unlink($file);}
 }

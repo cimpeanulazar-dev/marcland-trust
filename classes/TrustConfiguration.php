@@ -5,6 +5,9 @@ require_once __DIR__ . '/TrustSvg.php';
 /** Shared multistore configuration. One master connection owns every query and lock. */
 final class MarclandTrustConfiguration
 {
+    public const PLACEMENTS = ['home', 'product', 'checkout'];
+    public const MAX_METADATA_BYTES = 2097152;
+    public const MAX_UPLOAD_BYTES = 2097152;
     public const ICONS = ['truck', 'returns', 'shield', 'lock', 'support', 'verified'];
     private $db;
     private $directory;
@@ -26,10 +29,11 @@ final class MarclandTrustConfiguration
     {
         $zones = $this->db->executeS('SELECT * FROM `' . _DB_PREFIX_ . 'marclandtrust_zone` ORDER BY `position`, `id_zone`', true, false);
         $texts = $this->db->executeS('SELECT * FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_lang` ORDER BY `id_zone`, `id_lang`', true, false);
-        if (!is_array($zones) || !is_array($texts)) {
+        $placements = $this->db->executeS('SELECT * FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_placement` ORDER BY `id_zone`, `placement`', true, false);
+        if (!is_array($zones) || !is_array($texts) || !is_array($placements)) {
             throw new RuntimeException('Unable to load Trust Signals. Check the installed schema and database access.');
         }
-        return ['zones' => $zones, 'translations' => $texts];
+        return ['zones' => $zones, 'translations' => $texts, 'placements' => $placements];
     }
 
     public static function revision(array $data): string
@@ -56,8 +60,8 @@ final class MarclandTrustConfiguration
             throw new InvalidArgumentException('Incomplete configuration request. Reload the editor and try again.');
         }
         $input = $post['trust_signals'] ?? [];
-        if (count($input) > 3) {
-            throw new InvalidArgumentException('At most three zones are allowed, including inactive zones.');
+        if (strlen(json_encode($post, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR)) > self::MAX_METADATA_BYTES) {
+            throw new InvalidArgumentException('Configuration exceeds the 2 MiB metadata budget. Reduce content or split the configuration.');
         }
         $deleted = [];
         foreach ($post['trust_deleted'] ?? [] as $value) {
@@ -67,17 +71,24 @@ final class MarclandTrustConfiguration
             }
             $deleted[$id] = true;
         }
+        $knownCms = [];
+        $cachedCmsExists = static function ($id) use (&$knownCms, $cmsExists) {
+            if (!array_key_exists($id, $knownCms)) {
+                $knownCms[$id] = (bool) $cmsExists($id);
+            }
+            return $knownCms[$id];
+        };
         $zones = [];
         $seen = [];
         $positions = [];
-        $fields = ['id_zone', 'position', 'active', 'icon_type', 'icon_name', 'custom_icon_path', 'link_type', 'link_target', 'upload_selected', 'text'];
+        $fields = ['id_zone', 'position', 'active', 'icon_type', 'icon_name', 'custom_icon_path', 'upload_selected', 'text', 'placements'];
         foreach ($input as $index => $row) {
-            if (!is_int($index) || $index < 0 || $index > 2 || !is_array($row)
+            if (!is_int($index) || $index < 0 || $index > 4294967295 || !is_array($row)
                 || array_diff(array_keys($row), $fields) || array_diff($fields, array_keys($row))) {
                 throw new InvalidArgumentException('Invalid zone structure.');
             }
             foreach ($fields as $field) {
-                if ($field !== 'text' && !is_string($row[$field])) {
+                if (!in_array($field, ['text', 'placements'], true) && !is_string($row[$field])) {
                     throw new InvalidArgumentException('Invalid zone field.');
                 }
             }
@@ -91,7 +102,8 @@ final class MarclandTrustConfiguration
             if (!in_array($row['upload_selected'], ['0', '1'], true)
                 || ($row['upload_selected'] === '1' && $row['icon_type'] !== 'custom')
                 || !in_array($row['active'], ['0', '1'], true)
-                || !in_array($row['position'], ['1', '2', '3'], true)
+                || !preg_match('/\A[1-9][0-9]{0,9}\z/D', $row['position'])
+                || (float) $row['position'] > 4294967295
                 || (int) $row['position'] > count($input) || isset($positions[$row['position']])) {
                 throw new InvalidArgumentException('Invalid visibility or zone ordering.');
             }
@@ -103,17 +115,28 @@ final class MarclandTrustConfiguration
             if ($row['custom_icon_path'] !== '' && !self::validPath($row['custom_icon_path'])) {
                 throw new InvalidArgumentException('Invalid custom icon reference.');
             }
-            if (!in_array($row['link_type'], ['none', 'cms', 'anchor'], true)) {
-                throw new InvalidArgumentException('Unsupported link type.');
+            if (!is_array($row['placements'])
+                || array_diff(array_keys($row['placements']), self::PLACEMENTS)
+                || array_diff(self::PLACEMENTS, array_keys($row['placements']))) {
+                throw new InvalidArgumentException('Invalid or incomplete placement identifiers.');
             }
-            if ($row['link_type'] === 'none' && $row['link_target'] !== '') {
-                throw new InvalidArgumentException('A zone without a link must have an empty destination.');
-            }
-            if ($row['link_type'] === 'anchor' && !preg_match('/\A[A-Za-z][A-Za-z0-9_-]{0,127}\z/D', $row['link_target'])) {
-                throw new InvalidArgumentException('Use a valid internal anchor identifier without a hash.');
-            }
-            if ($row['link_type'] === 'cms' && !$cmsExists(self::id($row['link_target']))) {
-                throw new InvalidArgumentException('The selected CMS page does not exist.');
+            foreach ($row['placements'] as $placement => $settings) {
+                $expected = ['enabled', 'position', 'link_type', 'link_target'];
+                if (!is_array($settings) || array_diff(array_keys($settings), $expected)
+                    || array_diff($expected, array_keys($settings))) {
+                    throw new InvalidArgumentException('Invalid placement structure.');
+                }
+                foreach ($settings as $value) {
+                    if (!is_string($value)) {
+                        throw new InvalidArgumentException('Invalid placement value.');
+                    }
+                }
+                if (!in_array($settings['enabled'], ['0', '1'], true)
+                    || !preg_match('/\A(?:0|[1-9][0-9]{0,9})\z/D', $settings['position'])
+                    || (float) $settings['position'] > 4294967295) {
+                    throw new InvalidArgumentException('Invalid placement visibility or ordering.');
+                }
+                self::validateLink($settings['link_type'], $settings['link_target'], $placement, $cachedCmsExists);
             }
             if (!is_array($row['text'])) {
                 throw new InvalidArgumentException('Invalid translations.');
@@ -140,6 +163,23 @@ final class MarclandTrustConfiguration
         return ['zones' => $zones, 'deleted' => array_keys($deleted), 'revision' => $post['trust_revision']];
     }
 
+    private static function validateLink(string $type, string $target, string $placement, callable $cmsExists): void
+    {
+        if (!in_array($type, ['none', 'cms', 'anchor'], true)) {
+            throw new InvalidArgumentException('Unsupported link type.');
+        }
+        if ($type === 'none' && $target !== '') {
+            throw new InvalidArgumentException('A signal without a link must have an empty destination.');
+        }
+        if ($type === 'anchor' && ($placement === 'checkout'
+            || !preg_match('/\A[A-Za-z][A-Za-z0-9_-]{0,127}\z/D', $target))) {
+            throw new InvalidArgumentException('Use a safe local anchor on the homepage or product page. Checkout anchors are unsupported.');
+        }
+        if ($type === 'cms' && !$cmsExists(self::id($target))) {
+            throw new InvalidArgumentException('The selected CMS page does not exist.');
+        }
+    }
+
     public static function validPath(string $path): bool
     {
         return (bool) preg_match('/\Auploads\/[a-f0-9]{32}\.svg\z/D', $path);
@@ -162,6 +202,7 @@ final class MarclandTrustConfiguration
             }
         }
         $result = [];
+        $totalBytes = 0;
         foreach ($files['error'] as $index => $error) {
             if (!array_key_exists($index, $zones) || $zones[$index]['icon_type'] !== 'custom'
                 || !is_int($error) || !is_string($files['name'][$index] ?? null)
@@ -179,6 +220,10 @@ final class MarclandTrustConfiguration
                 || strtolower(pathinfo($files['name'][$index], PATHINFO_EXTENSION)) !== 'svg'
                 || filesize($tmp) > MarclandTrustSvg::MAX_BYTES || filesize($tmp) === 0) {
                 throw new InvalidArgumentException('SVG upload failed. Use an SVG file no larger than 100 KB.');
+            }
+            $totalBytes += filesize($tmp);
+            if ($totalBytes > self::MAX_UPLOAD_BYTES) {
+                throw new InvalidArgumentException('Selected icons exceed the 2 MiB total upload budget.');
             }
             $xml = @file_get_contents($tmp, false, null, 0, MarclandTrustSvg::MAX_BYTES + 1);
             if ($xml === false) {
@@ -222,9 +267,6 @@ final class MarclandTrustConfiguration
                 || array_diff($accounted, array_keys($existing)) || array_diff(array_keys($existing), $accounted)) {
                 throw new InvalidArgumentException('Unknown or omitted zone identifiers. Reload before saving.');
             }
-            if (count($configuration['zones']) > 3) {
-                throw new InvalidArgumentException('At most three zones are allowed.');
-            }
             $retired = [];
             foreach ($configuration['zones'] as $index => $zone) {
                 $id = $zone['id_zone'];
@@ -253,8 +295,6 @@ final class MarclandTrustConfiguration
                     'icon_type' => pSQL($zone['icon_type']),
                     'icon_name' => $zone['icon_type'] === 'predefined' ? pSQL($zone['icon_name']) : null,
                     'custom_icon_path' => $path === null ? null : pSQL($path),
-                    'link_type' => pSQL($zone['link_type']),
-                    'link_target' => $zone['link_type'] === 'none' ? null : pSQL($zone['link_target']),
                 ];
                 if ($id === null) {
                     if (!$this->db->insert('marclandtrust_zone', $data, true)) {
@@ -266,6 +306,17 @@ final class MarclandTrustConfiguration
                     }
                 } elseif (!$this->db->update('marclandtrust_zone', $data, 'id_zone = ' . (int) $id, 0, true)) {
                     throw new RuntimeException('Unable to update the zone.');
+                }
+                foreach ($zone['placements'] as $placement => $settings) {
+                    // Keep unknown future placement rows intact; only current registry entries are replaced.
+                    $this->execute("DELETE FROM `" . _DB_PREFIX_ . "marclandtrust_zone_placement` WHERE id_zone = " . (int) $id . " AND placement = '" . pSQL($placement) . "'");
+                    if (!$this->db->insert('marclandtrust_zone_placement', [
+                        'id_zone' => $id, 'placement' => pSQL($placement), 'enabled' => (int) $settings['enabled'],
+                        'position' => (int) $settings['position'], 'link_type' => pSQL($settings['link_type']),
+                        'link_target' => $settings['link_type'] === 'none' ? null : pSQL($settings['link_target']),
+                    ], true)) {
+                        throw new RuntimeException('Unable to save placement configuration.');
+                    }
                 }
                 $this->execute('DELETE FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_lang` WHERE id_zone = ' . (int) $id);
                 foreach ($zone['texts'] as $lang => $text) {
@@ -279,6 +330,7 @@ final class MarclandTrustConfiguration
             }
             foreach ($configuration['deleted'] as $id) {
                 $retired[] = (string) $existing[$id]['custom_icon_path'];
+                $this->execute('DELETE FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_placement` WHERE id_zone = ' . (int) $id);
                 $this->execute('DELETE FROM `' . _DB_PREFIX_ . 'marclandtrust_zone_lang` WHERE id_zone = ' . (int) $id);
                 $this->execute('DELETE FROM `' . _DB_PREFIX_ . 'marclandtrust_zone` WHERE id_zone = ' . (int) $id);
             }

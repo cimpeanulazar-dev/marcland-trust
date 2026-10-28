@@ -5,6 +5,8 @@ if (!$dsn || strpos($dsn, 'dbname=trust_test') === false) {
     throw new RuntimeException('Use only the disposable trust_test database.');
 }
 define('_PS_VERSION_', '9.0.0'); define('_DB_PREFIX_', 'audit_lifecycle_' . bin2hex(random_bytes(4)) . '_');
+define('_DB_NAME_', 'trust_test');
+function pSQL($value) { global $pdo; return substr($pdo->quote($value),1,-1); }
 $pdo = new PDO($dsn, 'root', '', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 class Module {
     public $name,$tab,$version,$author,$displayName,$description,$_errors=[];
@@ -17,6 +19,8 @@ class Module {
 }
 class Db {
     public static function getInstance() {return new self();}
+    public function getValue($sql,...$args) {global $pdo;return $pdo->query($sql)->fetchColumn();}
+    public function getRow($sql,...$args) {global $pdo;return $pdo->query($sql.' LIMIT 1')->fetch(PDO::FETCH_ASSOC);}
     public function execute($sql) {global $pdo; return $pdo->exec($sql)!==false;}
 }
 function verify($ok,$message) {if(!$ok){throw new RuntimeException($message);}}
@@ -28,6 +32,7 @@ verify(upgrade_module_0_2_0($m),'schema-less 0.1.0 upgrade failed');
 verify(count($m->hooks)===2,'upgrade hooks missing');
 // This prefix contains no merchant fixtures yet: reset only this run's empty tables
 // so fresh install is also exercised independently of the upgrade path.
+$pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone_placement');
 $pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone_lang');
 $pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone');
 verify($m->install(),'fresh installation failed');
@@ -44,5 +49,6 @@ verify($engines===['InnoDB'],'nontransactional schema');
 echo "PASS: MariaDB schema-less upgrade, installation, repeat upgrade, uninstall/reinstall data and ID retention\n";
 
 // Remove only this run's randomly named synthetic tables, never store tables.
+$pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone_placement');
 $pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone_lang');
 $pdo->exec('DROP TABLE ' . _DB_PREFIX_ . 'marclandtrust_zone');
